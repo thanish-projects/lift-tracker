@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react'
 import {Home as HomeIcon,Dumbbell,BarChart3,History as HistoryIcon,User,Check,Plus,Play,Pause,RotateCcw,X,ChevronUp,ChevronDown,Trash2,Copy,SkipForward} from 'lucide-react'
 import {BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,LineChart,Line,CartesianGrid} from 'recharts'
 import type {ExLog,SetLog,Session,State} from './types'
-import {useHealth,exportJSON,parseBackup,importState,useStore,update,uid,iso,disp,toKg,vol,e1rm,weekKey,doneSets,lastSets,nDone,startSession,startByMuscles,resetAll} from './store'
+import {useHealth,exportJSON,parseBackup,importState,useStore,update,uid,iso,disp,toKg,vol,e1rm,weekKey,doneSets,lastSets,nDone,startSession,startByMuscles,startPastSession,resetAll} from './store'
 
 const buzz=()=>navigator.vibrate?.(10)
 const D=['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -123,27 +123,29 @@ const [left,setLeft]=useState(0),[run,setRun]=useState(false)
 useEffect(()=>{if(!run)return;const t=setInterval(()=>setLeft(l=>{if(l<=1){setRun(false);navigator.vibrate?.(200);return 0}return l-1}),1000);return()=>clearInterval(t)},[run])
 const n=nDone(a),total=a.exercises.reduce((s,e)=>s+e.sets.length,0)
 const finish=()=>{if(!n&&!confirm('No sets completed. Discard this workout?'))return
-update(d=>{const x=d.active;if(!x)return;if(n&&!d.history.some(h=>h.id===x.id)){x.end=Date.now();d.history=[x,...d.history]}d.active=null})}
+update(d=>{const x=d.active;if(!x)return;if(n&&!d.history.some(h=>h.id===x.id)){if(!x.backfill){x.end=Date.now()}const nh=[x,...d.history];nh.sort((a,b)=>b.start-a.start);d.history=nh}d.active=null})}
 return <div className="space-y-3">
 <div className="sticky top-0 z-10 -mx-4 px-4 py-3 bg-bg/95 backdrop-blur border-b border-line" style={{paddingTop:'calc(env(safe-area-inset-top) + 8px)'}}>
-<div className="flex justify-between items-center"><div><div className="font-extrabold text-xl">{a.name}</div><div className="text-xs text-white/50">{a.date} · {n}/{total} sets</div></div>
+<div className="flex justify-between items-center"><div><div className="flex items-center gap-2"><span className="font-extrabold text-xl">{a.name}</span>{a.backfill&&<span className="text-xs bg-amber-400/20 text-amber-400 font-semibold px-2 py-0.5 rounded-md">Past workout</span>}</div><div className="text-xs text-white/50">{a.date} · {n}/{total} sets</div></div>
 <div className="flex items-center gap-2"><span className="text-2xl font-bold tabular-nums w-16 text-right">{Math.floor(left/60)}:{String(left%60).padStart(2,'0')}</span>
 <button className="btn sec !h-10 !px-3" onClick={()=>{if(left===0)setLeft(prefs.rest);setRun(!run)}}>{run?<Pause size={16}/>:<Play size={16}/>}</button>
 <button className="btn sec !h-10 !px-3" onClick={()=>{setRun(false);setLeft(0)}}><RotateCcw size={16}/></button></div></div>
 <div className="h-1 bg-white/10 rounded mt-2"><div className="h-1 bg-accent rounded transition-all" style={{width:`${total?n/total*100:0}%`}}/></div></div>
-{a.exercises.map(e=><ExCard key={e.id} e={e} u={u} onDone={()=>{setLeft(prefs.rest);setRun(true)}}/>)}
+{a.exercises.map(e=><ExCard key={e.id} e={e} u={u} onDone={()=>{if(!a.backfill){setLeft(prefs.rest);setRun(true)}}}/>)}
 <button className="btn sec w-full" onClick={()=>{const name=prompt('Exercise name');if(!name)return;const muscle=prompt('Muscle group','Other')||'Other'
 update(d=>{d.active!.exercises.push({id:uid(),name:name.trim(),muscle,sets:Array.from({length:3},()=>({id:uid(),w:0,r:0,done:false}))})})}}><Plus size={18}/>Add exercise</button>
-<button className="btn pri w-full" onClick={finish}>Finish workout</button>
+<button className="btn pri w-full" onClick={finish}>{a.backfill?'Save past workout':'Finish workout'}</button>
 <button className="btn w-full text-red-400" onClick={()=>{if(confirm('Discard this workout? Logged sets will be lost.'))update(d=>{d.active=null})}}>Discard workout</button></div>}
 
-function Workout(){
+function Workout({onOpenPast}:{onOpenPast:()=>void}){
 const {active,split}=useStore()
 if(active)return <Active a={active}/>
 const sorted=[...split].sort((a,b)=>a.weekday-b.weekday)
 const ed=(id:string,fn:(d:State['split'][number])=>void)=>update(s=>{const x=s.split.find(y=>y.id===id);if(x)fn(x)})
 return <div className="space-y-4"><h1 className="text-3xl font-extrabold">Workout</h1>
 <button className="btn sec w-full" onClick={()=>startSession()}><Play size={18}/>Start empty workout</button>
+<button className="btn sec w-full disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100" disabled={active!==null} onClick={()=>{if(!active)onOpenPast()}}><Plus size={18}/>Log a past workout</button>
+{active!==null&&<div className="text-xs text-white/50 text-center">Finish or discard your current workout first</div>}
 {sorted.map(d=><div key={d.id} className="card space-y-2">
 <div className="flex justify-between items-center"><div><div className="text-xl font-bold">{d.name}</div><div className="text-xs text-white/50">{D[d.weekday]} · {d.exercises.length} exercises</div></div>
 <div className="flex gap-1"><button className="btn pri !h-10 !px-4" onClick={()=>startSession(d.id)}><Play size={16}/>Start</button></div></div>
@@ -159,7 +161,7 @@ ed(d.id,x=>{x.exercises.push({id:uid(),name:n.trim(),muscle:m,sets:3,reps:'8-12'
 <button className="btn sec w-full" onClick={()=>{const n=prompt('Day name');if(!n)return;const w=+(prompt('Weekday number (0=Sun … 6=Sat)','1')||1);update(s=>{s.split.push({id:uid(),name:n,weekday:w>=0&&w<=6?w:1,exercises:[]})})}}><Plus size={18}/>Add workout day</button></div>}
 
 function Progress(){
-const {history,prefs}=useStore();const u=prefs.unit
+const {history,prefs,active}=useStore();const u=prefs.unit
 const names=[...new Set(history.flatMap(s=>s.exercises.filter(e=>doneSets(e).length).map(e=>e.name)))]
 const [sel,setSel]=useState('');const cur=names.includes(sel)?sel:names[0]
 if(!history.length)return <div className="space-y-4"><h1 className="text-3xl font-extrabold">Progress</h1><Empty t="No data yet. Complete a workout to see volume, progression and records."/></div>
@@ -180,11 +182,13 @@ return <div className="space-y-4"><h1 className="text-3xl font-extrabold">Progre
 <div className="card"><b>Personal records</b>{prs.map(p=><div key={p.n} className="flex justify-between text-sm border-t border-line mt-2 pt-2"><span>{p.n}</span><span className="text-white/60">{p.w} {u} · e1RM {p.e}</span></div>)}</div>
 <div className="card"><b>Muscle group frequency</b>{Object.entries(mg).sort((a,b)=>b[1]-a[1]).map(([m,c])=><div key={m} className="flex justify-between text-sm mt-2"><span>{m}</span><span className="text-white/60">{c} workouts</span></div>)}</div></div>}
 
-function HistoryPage(){
-const {history,prefs}=useStore();const u=prefs.unit
+function HistoryPage({onOpenPast}:{onOpenPast:()=>void}){
+const {history,prefs,active}=useStore();const u=prefs.unit
 const [q,setQ]=useState(''),[open,setOpen]=useState('')
 const list=history.filter(s=>(s.name+s.date+s.exercises.map(e=>e.muscle).join(' ')).toLowerCase().includes(q.toLowerCase()))
 return <div className="space-y-3"><h1 className="text-3xl font-extrabold">History</h1>
+<button className="btn sec w-full disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100" disabled={active!==null} onClick={()=>{if(!active)onOpenPast()}}><Plus size={16}/>Add past workout</button>
+{active!==null&&<div className="text-xs text-white/50 text-center">Finish or discard your current workout first</div>}
 <input className="inp" placeholder="Search name, date (2026-10) or muscle" value={q} onChange={e=>setQ(e.target.value)}/>
 {!history.length&&<Empty t="Completed workouts appear here."/>}
 {list.map(s=><div key={s.id} className="card"><button className="w-full text-left" onClick={()=>setOpen(open===s.id?'':s.id)}>
@@ -216,11 +220,83 @@ return <div className="space-y-4"><h1 className="text-3xl font-extrabold">Profil
 <label className="btn sec w-full">Import JSON backup<input type="file" accept="application/json,.json" className="hidden" onChange={e=>imp(e.target.files?.[0])}/></label>
 <button className="btn w-full text-red-400" onClick={()=>{if(confirm('Erase ALL data? This cannot be undone.'))resetAll()}}>Reset app data</button></div></div>}
 
+function PastWorkoutModal({onClose,go}:{onClose:()=>void;go:(n:number)=>void}){
+const {split,history}=useStore()
+const yesterday=new Date()
+yesterday.setDate(yesterday.getDate()-1)
+const defaultDate=iso(yesterday)
+const todayStr=iso(new Date())
+
+const [date,setDate]=useState(defaultDate)
+const [selectedDayId,setSelectedDayId]=useState('')
+const [selectedMuscles,setSelectedMuscles]=useState<string[]>([])
+
+const allMuscles=['Chest','Back','Legs','Shoulders','Biceps','Triceps','Abs']
+for(const day of split){
+for(const ex of day.exercises){
+if(ex.muscle&&!allMuscles.includes(ex.muscle)){allMuscles.push(ex.muscle)}
+}}
+
+const emptyMuscles:string[]=[]
+for(const m of selectedMuscles){
+let found=false
+for(const day of split){
+for(const ex of day.exercises){
+if(ex.muscle===m){found=true;break}
+}
+if(found)break
+}
+if(!found){emptyMuscles.push(m)}
+}
+
+const isFuture=date>todayStr
+const isInvalid=!date||isFuture
+const hasExisting=history.some(s=>s.date===date)
+
+function handleStart(){
+if(isInvalid)return
+startPastSession(date,selectedDayId?selectedDayId:undefined,selectedMuscles.length>0?selectedMuscles:undefined)
+onClose()
+go(1)
+}
+
+return <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
+<div className="card w-full max-w-md max-h-[90vh] overflow-y-auto space-y-4 bg-bg border border-line">
+<div className="flex justify-between items-center">
+<h2 className="text-xl font-bold">Log a past workout</h2>
+<button className="p-2 text-white/50 hover:text-white" onClick={onClose}><X size={20}/></button></div>
+
+<div>
+<div className="text-xs text-white/50 mb-1">Date</div>
+<input type="date" className="inp" max={todayStr} value={date} onChange={e=>setDate(e.target.value)}/>
+{isFuture&&<div className="text-xs text-red-400 mt-1">Future dates are not allowed.</div>}</div>
+
+{hasExisting&&<div className="text-xs text-amber-400 bg-amber-400/10 p-2.5 rounded-xl">You already have a workout on this date. Add another?</div>}
+
+<div>
+<div className="text-xs text-white/50 mb-1">Use a template day</div>
+<select className="inp" value={selectedDayId} onChange={e=>{setSelectedDayId(e.target.value);if(e.target.value)setSelectedMuscles([])}}>
+<option value="">None (choose muscles below)</option>
+{split.map(d=><option key={d.id} value={d.id}>{d.name} ({d.exercises.length} exercises)</option>)}
+</select></div>
+
+<div className="space-y-2">
+<div className="text-xs text-white/50">Or choose muscles</div>
+<div className="flex flex-wrap gap-2">
+{allMuscles.map(m=>{const on=selectedMuscles.includes(m)
+return <button key={m} type="button" onClick={()=>{setSelectedDayId('');setSelectedMuscles(prev=>{if(prev.includes(m)){return prev.filter(x=>x!==m)}else{return [...prev,m]}})}} className={`h-10 px-3.5 rounded-xl text-sm font-semibold transition-all ${on?'bg-accent text-black':'bg-white/10 text-white hover:bg-white/15'}`}>{m}</button>})}
+</div>
+{emptyMuscles.length>0&&<div className="text-xs text-amber-400">No exercises saved for {emptyMuscles.join(', ')}. Add some in Workout &gt; Add exercise.</div>}</div>
+
+<button className="btn pri w-full disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100" disabled={isInvalid} onClick={handleStart}><Play size={18}/>Start logging</button>
+</div></div>}
+
 export default function App(){
-const [tab,setTab]=useState(0),h=useHealth()
+const [tab,setTab]=useState(0),h=useHealth(),[pastModal,setPastModal]=useState(false)
 const tabs=[[HomeIcon,'Home'],[Dumbbell,'Workout'],[BarChart3,'Progress'],[HistoryIcon,'History'],[User,'Profile']] as const
 return <div className="min-h-screen" style={{paddingTop:'env(safe-area-inset-top)',paddingBottom:'calc(env(safe-area-inset-bottom) + 88px)'}}>
 {!h.ok&&<div className="sticky top-0 z-50 bg-red-600 text-white text-sm p-3">Changes are not being saved: {h.msg} <button className="underline font-semibold" onClick={()=>setTab(4)}>Export a backup</button></div>}
-<main className="px-4 pt-4 max-w-md mx-auto">{[<Home go={setTab}/>,<Workout/>,<Progress/>,<HistoryPage/>,<Profile/>][tab]}</main>
+<main className="px-4 pt-4 max-w-md mx-auto">{[<Home go={setTab}/>,<Workout onOpenPast={()=>setPastModal(true)}/>,<Progress/>,<HistoryPage onOpenPast={()=>setPastModal(true)}/>,<Profile/>][tab]}</main>
+{pastModal&&<PastWorkoutModal onClose={()=>setPastModal(false)} go={setTab}/>}
 <nav className="fixed bottom-0 inset-x-0 bg-bg/95 backdrop-blur border-t border-line flex justify-around pt-2" style={{paddingBottom:'calc(env(safe-area-inset-bottom) + 6px)'}}>
 {tabs.map(([I,l],i)=><button key={l} onClick={()=>setTab(i)} className={`flex flex-col items-center gap-0.5 w-16 h-12 text-[11px] ${tab===i?'text-accent':'text-white/50'}`}><I size={22}/>{l}</button>)}</nav></div>}

@@ -122,3 +122,55 @@ export function startByMuscles(muscles: string[]) {
     };
   });
 }
+export function startPastSession(date: string, dayId?: string, muscles?: string[]) {
+  update((d) => {
+    if (d.active !== null) {
+      return;
+    }
+    const startTimestamp = new Date(date + 'T12:00:00').getTime();
+    let sessionName = 'Past Workout';
+    let exercises: ExLog[] = [];
+    if (dayId) {
+      const templateDay = d.split.find((x) => x.id === dayId);
+      if (templateDay) {
+        sessionName = templateDay.name;
+        exercises = templateDay.exercises.map((e) => {
+          const emptySets: SetLog[] = [];
+          const count = e.sets > 0 ? e.sets : 3;
+          for (let i = 0; i < count; i++) {
+            emptySets.push({ id: uid(), w: 0, r: 0, done: false });
+          }
+          return { id: uid(), name: e.name, muscle: e.muscle, sets: emptySets };
+        });
+      }
+    } else if (muscles && muscles.length > 0) {
+      sessionName = muscles.join(' + ');
+      const seen = new Set<string>();
+      for (const m of muscles) {
+        for (const splitDay of d.split) {
+          for (const e of splitDay.exercises) {
+            if (e.muscle === m) {
+              if (!seen.has(e.name)) {
+                seen.add(e.name);
+                const emptySets: SetLog[] = [];
+                const count = e.sets > 0 ? e.sets : 3;
+                for (let i = 0; i < count; i++) {
+                  emptySets.push({ id: uid(), w: 0, r: 0, done: false });
+                }
+                exercises.push({ id: uid(), name: e.name, muscle: e.muscle, sets: emptySets });
+              }
+            }
+          }
+        }
+      }
+    }
+    d.active = {
+      id: uid(),
+      name: sessionName,
+      date: date,
+      start: startTimestamp,
+      backfill: true,
+      exercises: exercises
+    };
+  });
+}
