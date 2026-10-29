@@ -1,0 +1,7 @@
+@tailwind base;@tailwind components;@tailwind utilities;
+html,body,#root{min-height:100%;background:#0a0a0a;color:#f4f4f2;-webkit-tap-highlight-color:transparent;font-family:ui-rounded,-apple-system,"SF Pro Rounded","Helvetica Neue",sans-serif;overscroll-behavior:none}
+input,button{font:inherit}input{color:#fff;outline:none}input:focus{border-color:#b6ff3b}
+.card{@apply bg-card border border-line rounded-3xl p-4}
+.btn{@apply h-12 rounded-2xl px-4 font-semibold active:scale-95 transition flex items-center justify-center gap-2}
+.pri{@apply bg-accent text-black}.sec{@apply bg-white/10 text-white}
+.inp{@apply w-full bg-black/40 border border-line rounded-xl h-12 px-3 text-base}
