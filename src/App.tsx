@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react'
 import {Home as HomeIcon,Dumbbell,BarChart3,History as HistoryIcon,User,Check,Plus,Play,Pause,RotateCcw,X,ChevronUp,ChevronDown,Trash2,Copy,SkipForward} from 'lucide-react'
 import {BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,LineChart,Line,CartesianGrid} from 'recharts'
 import type {ExLog,SetLog,Session,State} from './types'
-import {useHealth,exportJSON,parseBackup,importState,useStore,update,uid,iso,disp,toKg,vol,e1rm,weekKey,doneSets,lastSets,nDone,startSession,resetAll} from './store'
+import {useHealth,exportJSON,parseBackup,importState,useStore,update,uid,iso,disp,toKg,vol,e1rm,weekKey,doneSets,lastSets,nDone,startSession,startByMuscles,resetAll} from './store'
 
 const buzz=()=>navigator.vibrate?.(10)
 const D=['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
@@ -12,6 +12,9 @@ const Stat=({l,v}:{l:string;v:string|number})=><div className="card flex-1 !p-3"
 
 function Num({v,on,ph,mode='decimal'}:{v:number;on:(n:number)=>void;ph:string;mode?:'decimal'|'numeric'}){
 return <input className="inp text-center text-lg font-semibold !px-1" inputMode={mode} placeholder={ph} defaultValue={v||''} onChange={e=>on(parseFloat(e.target.value.replace(',','.'))||0)}/>}
+function Field({l,children}:{l:string;children:React.ReactNode}){
+return <label className="block"><div className="text-xs text-white/50 mb-1">{l}</div>{children}</label>}
+let lastSelectedMuscles:string[]|null=null
 
 function Home({go}:{go:(n:number)=>void}){
 const {prefs,split,history,active}=useStore()
@@ -22,10 +25,63 @@ const weeks=new Set(history.map(s=>weekKey(s.date)));let streak=0
 const c=new Date(wk+'T00:00:00');if(!weeks.has(iso(c)))c.setDate(c.getDate()-7)
 while(weeks.has(iso(c))){streak++;c.setDate(c.getDate()-7)}
 const last=history[0]
+const allMuscles=['Chest','Back','Legs','Shoulders','Biceps','Triceps','Abs']
+for(const day of split){
+for(const ex of day.exercises){
+if(ex.muscle&&!allMuscles.includes(ex.muscle)){allMuscles.push(ex.muscle)}
+}}
+const todayMuscles:string[]=[]
+if(today){
+for(const ex of today.exercises){
+if(ex.muscle&&!todayMuscles.includes(ex.muscle)){todayMuscles.push(ex.muscle)}
+}}
+const [selectedMuscles,setSelectedMuscles]=useState<string[]>(()=>{
+if(lastSelectedMuscles!==null){return lastSelectedMuscles}
+return todayMuscles
+})
+function toggleMuscle(m:string){
+setSelectedMuscles(prev=>{
+let next:string[]
+if(prev.includes(m)){next=prev.filter(x=>x!==m)}
+else{next=[...prev,m]}
+lastSelectedMuscles=next
+return next
+})
+}
+const matchingExerciseNames=new Set<string>()
+for(const m of selectedMuscles){
+for(const day of split){
+for(const ex of day.exercises){
+if(ex.muscle===m){matchingExerciseNames.add(ex.name)}
+}}}
+const exerciseCount=matchingExerciseNames.size
+const emptyMuscles:string[]=[]
+for(const m of selectedMuscles){
+let found=false
+for(const day of split){
+for(const ex of day.exercises){
+if(ex.muscle===m){found=true;break}
+}
+if(found)break
+}
+if(!found){emptyMuscles.push(m)}
+}
 return <div className="space-y-4">
 <div><div className="text-white/50 text-sm">{new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})}</div>
 <h1 className="text-3xl font-extrabold">{g}{prefs.name?`, ${prefs.name}`:''}</h1></div>
-{active&&<button className="btn sec w-full justify-between" onClick={()=>go(1)}>Continue {active.name}<Play size={18}/></button>}
+{active?(
+<button className="btn sec w-full justify-between" onClick={()=>go(1)}>Continue {active.name}<Play size={18}/></button>
+):(
+<div className="card space-y-3">
+<div><div className="text-white/50 text-sm">What are you training?</div><div className="text-xl font-bold">Choose muscles</div></div>
+{allMuscles.length===0?<div className="text-sm text-white/50">No muscles found in split. Add exercises in the Workout tab.</div>:(
+<div className="flex flex-wrap gap-2">
+{allMuscles.map(m=>{const on=selectedMuscles.includes(m)
+return <button key={m} type="button" onClick={()=>toggleMuscle(m)} className={`h-10 px-3.5 rounded-xl text-sm font-semibold transition-all ${on?'bg-accent text-black':'bg-white/10 text-white hover:bg-white/15'}`}>{m}</button>})}
+</div>)}
+{emptyMuscles.length>0&&<div className="text-xs text-amber-400">No exercises saved for {emptyMuscles.join(', ')}. Add some in Workout &gt; Add exercise.</div>}
+<button className="btn pri w-full disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100" disabled={selectedMuscles.length===0} onClick={()=>{if(active)return go(1);if(selectedMuscles.length===0)return;startByMuscles(selectedMuscles);go(1)}}><Play size={18}/>{selectedMuscles.length===0?'Start workout':`Start workout · ${exerciseCount} ${exerciseCount===1?'exercise':'exercises'}`}</button>
+</div>)}
 <div className="card"><div className="text-white/50 text-sm">{today?'Planned today':'Today'}</div>
 <div className="text-3xl font-extrabold my-1">{today?today.name:'Rest day'}</div>
 {today&&<div className="text-sm text-white/50 mb-3">{today.exercises.length} exercises</div>}
@@ -141,15 +197,19 @@ return <div className="space-y-3"><h1 className="text-3xl font-extrabold">Histor
 function Profile(){
 const {prefs,history}=useStore()
 const set=(fn:(p:State['prefs'])=>void)=>update(d=>fn(d.prefs))
+const [restInput,setRestInput]=useState(()=>String(prefs.rest))
+const [goalInput,setGoalInput]=useState(()=>String(prefs.goal))
+useEffect(()=>{setRestInput(String(prefs.rest))},[prefs.rest])
+useEffect(()=>{setGoalInput(String(prefs.goal))},[prefs.goal])
 const save=(name:string,type:string,body:string)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([body],{type}));a.download=name;a.click()}
 const csv=()=>{const r=['date,workout,exercise,set,weight_kg,reps,rpe'];history.forEach(s=>s.exercises.forEach(e=>doneSets(e).forEach((x,i)=>r.push([s.date,s.name,e.name,i+1,x.w,x.r,x.rpe||''].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')))));save('lift.csv','text/csv',r.join('\n'))}
 const imp=async(f?:File)=>{if(!f)return;try{const j=parseBackup(await f.text());if(confirm(`Replace ALL current data with this backup (${j.history.length} workouts, ${j.split.length} days)? Export current data first if unsure.`))importState(j)}catch(e){alert(e instanceof Error?e.message:'Could not read this file.')}}
-const F=({l,children}:{l:string;children:React.ReactNode})=><label className="block"><div className="text-xs text-white/50 mb-1">{l}</div>{children}</label>
+
 return <div className="space-y-4"><h1 className="text-3xl font-extrabold">Profile</h1>
-<div className="card space-y-3"><F l="Name"><input className="inp" value={prefs.name} onChange={e=>set(p=>{p.name=e.target.value})}/></F>
-<F l="Weight unit"><div className="flex gap-2">{(['kg','lb'] as const).map(x=><button key={x} className={`btn flex-1 ${prefs.unit===x?'pri':'sec'}`} onClick={()=>set(p=>{p.unit=x})}>{x}</button>)}</div></F>
-<F l="Default rest (seconds)"><input className="inp" inputMode="numeric" value={prefs.rest} onChange={e=>set(p=>{p.rest=Math.min(600,+e.target.value.replace(/\D/g,'')||0)})}/></F>
-<F l="Weekly workout goal"><input className="inp" inputMode="numeric" value={prefs.goal} onChange={e=>set(p=>{p.goal=Math.min(14,+e.target.value.replace(/\D/g,'')||0)})}/></F></div>
+<div className="card space-y-3"><Field l="Name"><input className="inp" value={prefs.name} onChange={e=>set(p=>{p.name=e.target.value})}/></Field>
+<Field l="Weight unit"><div className="flex gap-2">{(['kg','lb'] as const).map(x=><button key={x} type="button" className={`btn flex-1 ${prefs.unit===x?'pri':'sec'}`} onClick={()=>set(p=>{p.unit=x})}>{x}</button>)}</div></Field>
+<Field l="Default rest (seconds)"><input className="inp" inputMode="numeric" value={restInput} onChange={e=>setRestInput(e.target.value.replace(/\D/g,''))} onBlur={()=>{let val=parseInt(restInput,10);if(isNaN(val)||val<=0){val=90}else if(val>600){val=600};setRestInput(String(val));set(p=>{p.rest=val})}}/></Field>
+<Field l="Weekly workout goal"><input className="inp" inputMode="numeric" value={goalInput} onChange={e=>setGoalInput(e.target.value.replace(/\D/g,''))} onBlur={()=>{let val=parseInt(goalInput,10);if(isNaN(val)||val<0){val=4}else if(val>14){val=14};setGoalInput(String(val));set(p=>{p.goal=val})}}/></Field></div>
 <div className="card space-y-2"><b>Backup</b><p className="text-xs text-white/50">Your data lives only in this browser on this phone. It is not synced anywhere. Deleting the app or clearing Safari data erases it, so export a backup regularly.</p>
 <button className="btn sec w-full" onClick={()=>save('lift-backup.json','application/json',exportJSON())}>Export JSON backup</button>
 <button className="btn sec w-full" onClick={csv}>Export CSV</button>

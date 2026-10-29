@@ -1,5 +1,5 @@
 import {useSyncExternalStore} from 'react'
-import type {State,Ex,Session,Unit,ExLog} from './types'
+import type {State,Ex,Session,Unit,ExLog,SetLog} from './types'
 import Dexie,{type Table} from 'dexie'
 const LEGACY='lift.v1'
 export const uid=()=>Math.random().toString(36).slice(2,10)+Date.now().toString(36)
@@ -80,5 +80,45 @@ export const weekKey=(date:string)=>{const d=new Date(date+'T00:00:00');d.setDat
 export const doneSets=(e:ExLog)=>e.skipped?[]:e.sets.filter(s=>s.done)
 export const lastSets=(h:Session[],name:string)=>{for(const s of h){const e=s.exercises.find(x=>x.name===name&&doneSets(x).length);if(e)return doneSets(e)}return []}
 export const nDone=(s:Session)=>s.exercises.reduce((a,e)=>a+doneSets(e).length,0)
-export function startSession(dayId?:string){update(d=>{const t=d.split.find(x=>x.id===dayId)
+export function startSession(dayId?:string){update(d=>{if(d.active!==null)return;const t=d.split.find(x=>x.id===dayId)
 d.active={id:uid(),name:t?.name||'Workout',date:iso(),start:Date.now(),exercises:(t?.exercises||[]).map(e=>({id:uid(),name:e.name,muscle:e.muscle,sets:Array.from({length:e.sets},()=>({id:uid(),w:0,r:0,done:false}))}))}})}
+export function startByMuscles(muscles: string[]) {
+  update((d) => {
+    if (d.active !== null) {
+      return;
+    }
+    let sessionName = 'Workout';
+    if (muscles.length > 0) {
+      sessionName = muscles.join(' + ');
+    }
+    const seen = new Set<string>();
+    const exercises: ExLog[] = [];
+    for (const muscle of muscles) {
+      for (const day of d.split) {
+        for (const e of day.exercises) {
+          if (e.muscle === muscle) {
+            if (!seen.has(e.name)) {
+              seen.add(e.name);
+              const emptySets: SetLog[] = [];
+              let count = 3;
+              if (e.sets && e.sets > 0) {
+                count = e.sets;
+              }
+              for (let i = 0; i < count; i++) {
+                emptySets.push({ id: uid(), w: 0, r: 0, done: false });
+              }
+              exercises.push({ id: uid(), name: e.name, muscle: e.muscle, sets: emptySets });
+            }
+          }
+        }
+      }
+    }
+    d.active = {
+      id: uid(),
+      name: sessionName,
+      date: iso(),
+      start: Date.now(),
+      exercises: exercises
+    };
+  });
+}
